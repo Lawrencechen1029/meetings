@@ -10,7 +10,7 @@
             margin: 20px;
         }
         .container {
-            max-width: 800px;
+            max-width: 1200px;
             margin: auto;
         }
         table {
@@ -19,9 +19,10 @@
             margin-bottom: 20px;
         }
         th, td {
-            padding: 10px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
+            padding: 5px;
+            text-align: center;
+            border: 1px solid #ddd;
+            position: relative;
         }
         th {
             background-color: #f2f2f2;
@@ -30,9 +31,34 @@
             padding: 5px 10px;
             cursor: pointer;
         }
-        canvas {
-            max-width: 100%;
-            height: auto;
+        .tooltip {
+            visibility: hidden;
+            background-color: black;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%; /* Position the tooltip above the text */
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%; /* Arrow at the bottom of the tooltip */
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: black transparent transparent transparent;
+        }
+        td:hover .tooltip {
+            visibility: visible;
+            opacity: 1;
         }
     </style>
 </head>
@@ -42,15 +68,12 @@
     <table id="bookingTable">
         <thead>
         <tr>
-            <th>日期</th>
-            <th>时间</th>
-            <th>会议室</th>
-            <th>用户名</th>
-            <th>操作</th>
+            <th></th>
+            <!-- Days will be dynamically inserted here -->
         </tr>
         </thead>
         <tbody>
-        <!-- 预定记录将动态插入到这里 -->
+        <!-- Time slots and bookings will be dynamically inserted here -->
         </tbody>
     </table>
 
@@ -60,7 +83,7 @@
         
         <label for="time">时间:</label>
         <select id="time" name="time" required>
-            <!-- 时间选项将动态生成在这里 -->
+            <!-- Time options will be dynamically generated here -->
         </select><br><br>
         
         <label for="room">会议室:</label>
@@ -74,14 +97,13 @@
         
         <button type="submit">预定</button>
     </form>
-
-    <canvas id="myChart"></canvas>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         const bookings = JSON.parse(localStorage.getItem('bookings')) || [];
+        const bookingTableHead = document.getElementById('bookingTable').getElementsByTagName('thead')[0];
         const bookingTableBody = document.getElementById('bookingTable').getElementsByTagName('tbody')[0];
         const timeSelect = document.getElementById('time');
         const bookingForm = document.getElementById('bookingForm');
@@ -89,24 +111,17 @@
         // 初始化时间选择器
         initializeTimeSelector();
 
-        // 渲染表格
-        renderBookings(bookings);
+        // 初始化表格头
+        initializeTableHeader();
+
+        // 渲染表格体
+        renderTableBody(bookings);
 
         // 表单提交事件
         bookingForm.addEventListener('submit', function(event) {
             event.preventDefault();
             addBooking();
         });
-
-        // 删除预定记录事件
-        bookingTableBody.addEventListener('click', function(event) {
-            if (event.target.tagName === 'BUTTON') {
-                deleteBooking(event.target.dataset.index);
-            }
-        });
-
-        // 绘制图表
-        drawChart(bookings);
 
         function initializeTimeSelector() {
             const startTime = new Date(2023, 0, 1, 9, 0); // 9:00 AM
@@ -118,6 +133,59 @@
                 option.text = startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 timeSelect.appendChild(option);
                 startTime.setMinutes(startTime.getMinutes() + 30);
+            }
+        }
+
+        function initializeTableHeader() {
+            const headerRow = bookingTableHead.getElementsByTagName('tr')[0];
+            const daysOfWeek = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+            const currentWeekStart = getMondayOfCurrentWeek();
+
+            daysOfWeek.forEach((day, index) => {
+                const th = document.createElement('th');
+                const date = new Date(currentWeekStart);
+                date.setDate(currentWeekStart.getDate() + index);
+                th.textContent = `${day} ${formatDate(date)}`;
+                headerRow.appendChild(th);
+            });
+        }
+
+        function renderTableBody(bookings) {
+            bookingTableBody.innerHTML = '';
+
+            for (let hour = 0; hour < 24; hour++) {
+                for (let minute = 0; minute < 60; minute += 30) {
+                    const tr = document.createElement('tr');
+                    const timeCell = document.createElement('td');
+                    timeCell.textContent = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                    tr.appendChild(timeCell);
+
+                    for (let day = 0; day < 7; day++) {
+                        const td = document.createElement('td');
+                        const currentWeekStart = getMondayOfCurrentWeek();
+                        const currentDate = new Date(currentWeekStart);
+                        currentDate.setDate(currentWeekStart.getDate() + day);
+                        currentDate.setHours(hour, minute, 0, 0);
+
+                        const bookingsForTimeSlot = bookings.filter(booking => {
+                            const bookingDate = new Date(`${booking.date}T${booking.time}:00`);
+                            return isSameDayAndTime(bookingDate, currentDate);
+                        });
+
+                        if (bookingsForTimeSlot.length > 0) {
+                            const tooltip = document.createElement('div');
+                            tooltip.className = 'tooltip';
+                            bookingsForTimeSlot.forEach(booking => {
+                                tooltip.innerHTML += `<p>${booking.room} - ${booking.username}</p>`;
+                            });
+                            td.appendChild(tooltip);
+                        }
+
+                        tr.appendChild(td);
+                    }
+
+                    bookingTableBody.appendChild(tr);
+                }
             }
         }
 
@@ -136,85 +204,12 @@
 
             bookings.push(newBooking);
             localStorage.setItem('bookings', JSON.stringify(bookings));
-            renderBookings(bookings);
-            drawChart(bookings);
+            renderTableBody(bookings);
             bookingForm.reset();
         }
 
-        function deleteBooking(index) {
-            bookings.splice(index, 1);
-            localStorage.setItem('bookings', JSON.stringify(bookings));
-            renderBookings(bookings);
-            drawChart(bookings);
-        }
-
-        function renderBookings(bookings) {
-            bookingTableBody.innerHTML = '';
-            bookings.forEach((booking, index) => {
-                const row = bookingTableBody.insertRow();
-                row.insertCell(0).textContent = booking.date;
-                row.insertCell(1).textContent = booking.time;
-                row.insertCell(2).textContent = booking.room;
-                row.insertCell(3).textContent = booking.username;
-                const cell = row.insertCell(4);
-                const button = document.createElement('button');
-                button.textContent = '删除';
-                button.setAttribute('data-index', index);
-                cell.appendChild(button);
-            });
-        }
-
-        function drawChart(bookings) {
-            const ctx = document.getElementById('myChart').getContext('2d');
-            const currentWeekStart = getMondayOfCurrentWeek();
-            const labels = generateHourLabels(currentWeekStart);
-
-            const room1401Data = Array(labels.length).fill(0);
-            const room1402Data = Array(labels.length).fill(0);
-
-            bookings.forEach(booking => {
-                const bookingDate = new Date(`${booking.date}T${booking.time}:00`);
-                if (isSameWeek(bookingDate, currentWeekStart)) {
-                    const labelIndex = labels.indexOf(formatLabel(bookingDate));
-                    if (labelIndex !== -1) {
-                        if (booking.room === '1401') {
-                            room1401Data[labelIndex]++;
-                        } else if (booking.room === '1402') {
-                            room1402Data[labelIndex]++;
-                        }
-                    }
-                }
-            });
-
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        {
-                            label: '1401会议室',
-                            data: room1401Data,
-                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                            borderColor: 'rgba(75, 192, 192, 1)',
-                            borderWidth: 1
-                        },
-                        {
-                            label: '1402会议室',
-                            data: room1402Data,
-                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                            borderColor: 'rgba(255, 99, 132, 1)',
-                            borderWidth: 1
-                        }
-                    ]
-                },
-                options: {
-                    scales: {
-                        y: {
-                            beginAtZero: true
-                        }
-                    }
-                }
-            });
+        function formatDate(date) {
+            return `${date.getMonth() + 1}/${date.getDate()}`;
         }
 
         function getMondayOfCurrentWeek() {
@@ -224,28 +219,14 @@
             return new Date(today.setDate(diff));
         }
 
-        function generateHourLabels(startDate) {
-            const labels = [];
-            for (let i = 0; i < 7; i++) {
-                const currentDate = new Date(startDate);
-                currentDate.setDate(startDate.getDate() + i);
-                for (let j = 0; j < 16; j++) {
-                    const currentTime = new Date(currentDate);
-                    currentTime.setHours(9 + Math.floor(j / 2), (j % 2) * 30, 0, 0);
-                    labels.push(formatLabel(currentTime));
-                }
-            }
-            return labels;
-        }
-
-        function formatLabel(date) {
-            return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-        }
-
-        function isSameWeek(date1, date2) {
-            const startOfWeek1 = getMondayOfCurrentWeek(date1);
-            const startOfWeek2 = getMondayOfCurrentWeek(date2);
-            return startOfWeek1.toDateString() === startOfWeek2.toDateString();
+        function isSameDayAndTime(date1, date2) {
+            return (
+                date1.getFullYear() === date2.getFullYear() &&
+                date1.getMonth() === date2.getMonth() &&
+                date1.getDate() === date2.getDate() &&
+                date1.getHours() === date2.getHours() &&
+                date1.getMinutes() === date2.getMinutes()
+            );
         }
     });
 </script>
