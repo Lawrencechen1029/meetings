@@ -13,23 +13,30 @@
             max-width: 1200px;
             margin: auto;
         }
+        form {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-top: 10px;
+        }
+        input, select, button {
+            padding: 5px 10px;
+            margin-top: 5px;
+        }
         table {
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 20px;
         }
         th, td {
-            padding: 5px;
+            padding: 10px;
             text-align: center;
             border: 1px solid #ddd;
             position: relative;
         }
         th {
             background-color: #f2f2f2;
-        }
-        button {
-            padding: 5px 10px;
-            cursor: pointer;
         }
         .tooltip {
             visibility: hidden;
@@ -45,6 +52,7 @@
             transform: translateX(-50%);
             opacity: 0;
             transition: opacity 0.3s;
+            white-space: nowrap;
         }
         .tooltip::after {
             content: '';
@@ -60,12 +68,67 @@
             visibility: visible;
             opacity: 1;
         }
+        .controls {
+            margin-bottom: 20px;
+        }
+        .week-navigation {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .booking-list {
+            margin-top: 20px;
+        }
+        .booking-item {
+            padding: 10px;
+            border: 1px solid #ddd;
+            margin-bottom: 10px;
+            border-radius: 5px;
+        }
     </style>
 </head>
 <body>
 <div class="container">
     <h1>会议室预定系统</h1>
-    <table id="bookingTable">
+
+    <div class="controls">
+        <div class="week-navigation">
+            <button id="prevWeek">上周</button>
+            <span id="currentWeek"></span>
+            <button id="nextWeek">下周</button>
+        </div>
+
+        <form id="bookingForm">
+            <label for="startDate">开始日期:</label>
+            <input type="date" id="startDate" name="startDate" required><br>
+            
+            <label for="startTime">开始时间:</label>
+            <select id="startTime" name="startTime" required>
+                <!-- Time options will be dynamically generated here -->
+            </select><br>
+            
+            <label for="endDate">结束日期:</label>
+            <input type="date" id="endDate" name="endDate" required><br>
+            
+            <label for="endTime">结束时间:</label>
+            <select id="endTime" name="endTime" required>
+                <!-- Time options will be dynamically generated here -->
+            </select><br>
+            
+            <label for="room">会议室:</label>
+            <select id="room" name="room" required>
+                <option value="1401">1401会议室</option>
+                <option value="1402">1402会议室</option>
+            </select><br>
+            
+            <label for="username">用户名:</label>
+            <input type="text" id="username" name="username" required><br>
+            
+            <button type="submit">预定</button>
+        </form>
+    </div>
+
+    <table id="scheduleTable">
         <thead>
         <tr>
             <th></th>
@@ -77,45 +140,39 @@
         </tbody>
     </table>
 
-    <form id="bookingForm">
-        <label for="date">日期:</label>
-        <input type="date" id="date" name="date" required><br><br>
-        
-        <label for="time">时间:</label>
-        <select id="time" name="time" required>
-            <!-- Time options will be dynamically generated here -->
-        </select><br><br>
-        
-        <label for="room">会议室:</label>
-        <select id="room" name="room" required>
-            <option value="1401">1401会议室</option>
-            <option value="1402">1402会议室</option>
-        </select><br><br>
-        
-        <label for="username">用户名:</label>
-        <input type="text" id="username" name="username" required><br><br>
-        
-        <button type="submit">预定</button>
-    </form>
+    <div class="booking-list">
+        <h2>所有预订记录</h2>
+        <div id="bookingRecords"></div>
+    </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         const bookings = JSON.parse(localStorage.getItem('bookings')) || [];
-        const bookingTableHead = document.getElementById('bookingTable').getElementsByTagName('thead')[0];
-        const bookingTableBody = document.getElementById('bookingTable').getElementsByTagName('tbody')[0];
-        const timeSelect = document.getElementById('time');
+        const bookingTableHead = document.getElementById('scheduleTable').getElementsByTagName('thead')[0];
+        const bookingTableBody = document.getElementById('scheduleTable').getElementsByTagName('tbody')[0];
+        const startTimeSelect = document.getElementById('startTime');
+        const endTimeSelect = document.getElementById('endTime');
         const bookingForm = document.getElementById('bookingForm');
+        const currentWeekDisplay = document.getElementById('currentWeek');
+        const prevWeekButton = document.getElementById('prevWeek');
+        const nextWeekButton = document.getElementById('nextWeek');
+        const bookingRecordsContainer = document.getElementById('bookingRecords');
+
+        let currentWeekStart = getMondayOfCurrentWeek();
 
         // 初始化时间选择器
-        initializeTimeSelector();
+        initializeTimeSelectors();
 
         // 初始化表格头
-        initializeTableHeader();
+        initializeTableHeader(currentWeekStart);
 
         // 渲染表格体
-        renderTableBody(bookings);
+        renderTableBody(bookings, currentWeekStart);
+
+        // 渲染所有预订记录
+        renderBookingRecords(bookings);
 
         // 表单提交事件
         bookingForm.addEventListener('submit', function(event) {
@@ -123,34 +180,51 @@
             addBooking();
         });
 
-        function initializeTimeSelector() {
+        // 上周按钮点击事件
+        prevWeekButton.addEventListener('click', () => {
+            currentWeekStart.setDate(currentWeekStart.getDate() - 7);
+            updateSchedule(currentWeekStart, bookings);
+        });
+
+        // 下周按钮点击事件
+        nextWeekButton.addEventListener('click', () => {
+            currentWeekStart.setDate(currentWeekStart.getDate() + 7);
+            updateSchedule(currentWeekStart, bookings);
+        });
+
+        function initializeTimeSelectors() {
             const startTime = new Date(2023, 0, 1, 9, 0); // 9:00 AM
             const endTime = new Date(2023, 0, 1, 17, 0); // 5:00 PM
 
             while (startTime <= endTime) {
-                const option = document.createElement('option');
-                option.value = startTime.toISOString().substring(11, 16);
-                option.text = startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                timeSelect.appendChild(option);
+                const optionStart = document.createElement('option');
+                const optionEnd = document.createElement('option');
+                const timeString = startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                optionStart.value = timeString;
+                optionEnd.value = timeString;
+                optionStart.text = timeString;
+                optionEnd.text = timeString;
+                startTimeSelect.appendChild(optionStart);
+                endTimeSelect.appendChild(optionEnd);
                 startTime.setMinutes(startTime.getMinutes() + 30);
             }
         }
 
-        function initializeTableHeader() {
+        function initializeTableHeader(startOfWeek) {
             const headerRow = bookingTableHead.getElementsByTagName('tr')[0];
+            headerRow.innerHTML = '<th></th>'; // Clear existing headers
             const daysOfWeek = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-            const currentWeekStart = getMondayOfCurrentWeek();
 
             daysOfWeek.forEach((day, index) => {
                 const th = document.createElement('th');
-                const date = new Date(currentWeekStart);
-                date.setDate(currentWeekStart.getDate() + index);
+                const date = new Date(startOfWeek);
+                date.setDate(startOfWeek.getDate() + index);
                 th.textContent = `${day} ${formatDate(date)}`;
                 headerRow.appendChild(th);
             });
         }
 
-        function renderTableBody(bookings) {
+        function renderTableBody(bookings, startOfWeek) {
             bookingTableBody.innerHTML = '';
 
             for (let hour = 0; hour < 24; hour++) {
@@ -162,14 +236,14 @@
 
                     for (let day = 0; day < 7; day++) {
                         const td = document.createElement('td');
-                        const currentWeekStart = getMondayOfCurrentWeek();
-                        const currentDate = new Date(currentWeekStart);
-                        currentDate.setDate(currentWeekStart.getDate() + day);
+                        const currentDate = new Date(startOfWeek);
+                        currentDate.setDate(startOfWeek.getDate() + day);
                         currentDate.setHours(hour, minute, 0, 0);
 
                         const bookingsForTimeSlot = bookings.filter(booking => {
-                            const bookingDate = new Date(`${booking.date}T${booking.time}:00`);
-                            return isSameDayAndTime(bookingDate, currentDate);
+                            const bookingStartDate = new Date(`${booking.startDate}T${booking.startTime}:00`);
+                            const bookingEndDate = new Date(`${booking.endDate}T${booking.endTime}:00`);
+                            return isWithinTimeSlot(currentDate, bookingStartDate, bookingEndDate);
                         });
 
                         if (bookingsForTimeSlot.length > 0) {
@@ -190,21 +264,26 @@
         }
 
         function addBooking() {
-            const dateInput = document.getElementById('date').value;
-            const timeInput = document.getElementById('time').value;
+            const startDateInput = document.getElementById('startDate').value;
+            const startTimeInput = document.getElementById('startTime').value;
+            const endDateInput = document.getElementById('endDate').value;
+            const endTimeInput = document.getElementById('endTime').value;
             const roomInput = document.getElementById('room').value;
             const usernameInput = document.getElementById('username').value;
 
             const newBooking = {
-                date: dateInput,
-                time: timeInput,
+                startDate: startDateInput,
+                startTime: startTimeInput,
+                endDate: endDateInput,
+                endTime: endTimeInput,
                 room: roomInput,
                 username: usernameInput
             };
 
             bookings.push(newBooking);
             localStorage.setItem('bookings', JSON.stringify(bookings));
-            renderTableBody(bookings);
+            updateSchedule(currentWeekStart, bookings);
+            renderBookingRecords(bookings);
             bookingForm.reset();
         }
 
@@ -219,14 +298,37 @@
             return new Date(today.setDate(diff));
         }
 
-        function isSameDayAndTime(date1, date2) {
-            return (
-                date1.getFullYear() === date2.getFullYear() &&
-                date1.getMonth() === date2.getMonth() &&
-                date1.getDate() === date2.getDate() &&
-                date1.getHours() === date2.getHours() &&
-                date1.getMinutes() === date2.getMinutes()
-            );
+        function isWithinTimeSlot(checkDate, startDate, endDate) {
+            return checkDate >= startDate && checkDate < endDate;
+        }
+
+        function updateSchedule(startOfWeek, bookings) {
+            initializeTableHeader(startOfWeek);
+            renderTableBody(bookings, startOfWeek);
+            currentWeekDisplay.textContent = `第 ${getWeekNumber(startOfWeek)} 周`;
+        }
+
+        function renderBookingRecords(bookings) {
+            bookingRecordsContainer.innerHTML = '';
+            bookings.forEach((booking, index) => {
+                const div = document.createElement('div');
+                div.className = 'booking-item';
+                div.innerHTML = `
+                    <strong>日期:</strong> ${booking.startDate} 到 ${booking.endDate}<br>
+                    <strong>时间:</strong> ${booking.startTime} 到 ${booking.endTime}<br>
+                    <strong>会议室:</strong> ${booking.room}<br>
+                    <strong>用户名:</strong> ${booking.username}
+                `;
+                bookingRecordsContainer.appendChild(div);
+            });
+        }
+
+        function getWeekNumber(d) {
+            d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+            d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay()||7));
+            var yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+            var weekNo = Math.ceil((((d - yearStart) / 86400000) + 1)/7);
+            return weekNo;
         }
     });
 </script>
